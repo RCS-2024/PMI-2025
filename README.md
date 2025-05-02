@@ -1,6 +1,6 @@
 # PMI-2025
 
-Gestor de tareas y actividades para equipos, con panel Kanban, reportes y filtros avanzados.
+Gestor de tareas y actividades para equipos, con panel Kanban, reportes, filtros avanzados y sistema de autenticación de usuarios.
 
 ## 🚀 Características principales
 
@@ -9,6 +9,9 @@ Gestor de tareas y actividades para equipos, con panel Kanban, reportes y filtro
 - **Filtros avanzados**: Filtra por usuario, fecha, estado y más.
 - **Generación de reportes**: Exporta informes en PDF/CSV con un solo clic.
 - **Interfaz profesional**: UI moderna, responsiva y clara.
+- **Autenticación de usuarios**: Sistema completo de registro y login con JWT.
+- **Roles y permisos**: Funcionalidades específicas para administradores y usuarios.
+- **Asignación de responsables**: Asigna tareas a usuarios específicos y realiza seguimiento.
 
 ## 🛠️ Instalación
 
@@ -34,6 +37,18 @@ Gestor de tareas y actividades para equipos, con panel Kanban, reportes y filtro
    cd client
    npm start
    ```
+
+## 🔐 Autenticación y usuarios
+
+- **Usuarios predeterminados**:
+  - Admin: `admin` / `admin123` (acceso completo a funcionalidades administrativas)
+  - Usuario normal: Puedes registrar nuevos usuarios desde la interfaz
+
+- **Características de autenticación**:
+  - JWT (JSON Web Tokens) para sesiones seguras
+  - Encriptación de contraseñas con bcrypt
+  - Middleware de autorización basado en roles
+  - Tiempo de expiración de tokens configurable (7 días por defecto)
 
 ## 🌐 Publicación online
 

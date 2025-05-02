@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import html2pdf from "html2pdf.js";
+import { useNavigate } from "react-router-dom";
 import "./index.css";
+
+// Importar context y servicios
+import { useAuth } from "./contexts/AuthContext";
+import { tasksAPI, usersAPI } from "./services/api";
+import UserSelector from "./components/UserSelector";
 
 // Definición de columnas (droppableId SIEMPRE en inglés)
 const columns = [
@@ -10,31 +16,26 @@ const columns = [
   { key: "completed", label: "Tareas completadas" },
 ];
 
-// Lista de usuarios predefinidos para el combo
-const usuariosPredefinidos = [
-  { id: "", nombre: "Sin asignar" },
-  { id: "Juan", nombre: "Juan" },
-  { id: "Eder", nombre: "Eder" },
-  { id: "Roberto", nombre: "Roberto" },
-  { id: "Robin", nombre: "Robin" },
-  { id: "Alfonso", nombre: "Alfonso" },
-];
-
-const API_URL = "http://localhost:5000/api/tasks";
+// API URL base
+const API_BASE_URL = "http://localhost:5000/api";
 
 function App() {
+  const { currentUser, token, logout } = useAuth();
+  const navigate = useNavigate();
+  
   const [tasks, setTasks] = useState([]);
   const [desc, setDesc] = useState("");
-  const [user, setUser] = useState("");
+  const [assignedUserId, setAssignedUserId] = useState(""); // ID del usuario asignado
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false); // Estado para botón eliminar
   const [archiveLoading, setArchiveLoading] = useState(false); // Estado para botón archivar
   const [editTaskId, setEditTaskId] = useState(null); // ID de la tarea en edición
   const [editTaskText, setEditTaskText] = useState(""); // Texto de la tarea en edición
+  const [editAssignedUserId, setEditAssignedUserId] = useState(""); // Usuario asignado en edición
   const [editLoading, setEditLoading] = useState(false); // Estado para la edición
   const [includeArchived, setIncludeArchived] = useState(false); // Incluir archivados en el informe
-  const [filterUser, setFilterUser] = useState("all"); // Filtrar por usuario en el informe
+  const [filterUserId, setFilterUserId] = useState("all"); // Filtrar por usuario en el informe
   const [startDate, setStartDate] = useState(""); // Fecha de inicio para filtrado
   const [endDate, setEndDate] = useState(""); // Fecha de fin para filtrado
   const [sortBy, setSortBy] = useState("createdAt"); // Campo por el que ordenar
@@ -42,27 +43,44 @@ function App() {
   const [report, setReport] = useState(null); // Datos del informe
   const [showReport, setShowReport] = useState(false); // Mostrar/ocultar modal de informe
   const [exporting, setExporting] = useState(false); // Estado para indicar exportación en progreso
+  const [usersList, setUsersList] = useState([]); // Lista de usuarios disponibles
   const reportRef = useRef(null); // Referencia al contenido del informe para exportar
-  // Logs para depuración
-  console.log("Columns:", columns);
-  console.log("Tasks:", tasks);
 
   // Cargar tareas del backend
   useEffect(() => {
     const fetchTasks = async () => {
+      if (!token) return; // No cargar tareas si no hay token
+      
       setLoading(true);
       try {
-        const res = await fetch(API_URL);
-        const data = await res.json();
+        // Usar el servicio API con autenticación
+        const data = await tasksAPI.getTasks();
         setTasks(data);
       } catch (err) {
-        setError("Error loading tasks");
+        console.error('Error cargando tareas:', err);
+        setError("Error cargando tareas: " + err.message);
       } finally {
         setLoading(false);
       }
     };
     fetchTasks();
-  }, []);
+  }, [token]);
+  
+  // Cargar usuarios disponibles
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (!token) return;
+      
+      try {
+        const users = await usersAPI.getAllUsers();
+        setUsersList(users);
+      } catch (err) {
+        console.error('Error cargando usuarios:', err);
+      }
+    };
+    
+    fetchUsers();
+  }, [token]);
 
   // Agregar tarea al backend
   const addTask = async () => {
@@ -70,18 +88,19 @@ function App() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ desc, user, status: "pending" }) // status siempre en inglés
+      // Usar el servicio API con token de autenticación
+      const newTask = await tasksAPI.createTask({ 
+        desc, 
+        assignedUserId, 
+        status: "pending" 
       });
-      if (!res.ok) throw new Error("Error adding task");
-      const newTask = await res.json();
+      
       setTasks([...tasks, newTask]);
       setDesc("");
-      setUser("");
+      setAssignedUserId("");
     } catch (err) {
-      setError("Error adding task");
+      console.error('Error agregando tarea:', err);
+      setError("Error agregando tarea: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -89,76 +108,38 @@ function App() {
   
   // Eliminar tarea
   const deleteTask = async (taskId) => {
-    // Evitar múltiples clics
-    if (deleteLoading) return;
-    
-    try {
+    if (window.confirm("¿Seguro que desea eliminar esta tarea?")) {
       setDeleteLoading(true);
-      
-      // 1. Optimistic UI update - eliminar en el frontend primero
-      setTasks(tasks.filter(t => t._id !== taskId));
-      
-      // 2. Eliminar en el backend
-      const response = await fetch(`${API_URL}/${taskId}`, {
-        method: 'DELETE',
-      });
-      
-      if (!response.ok) {
-        // Si hay error, revertimos el cambio recuperando las tareas
-        console.error('Error al eliminar:', await response.text());
-        const refreshRes = await fetch(API_URL);
-        if (refreshRes.ok) {
-          setTasks(await refreshRes.json());
-        }
-        setError("Error al eliminar la tarea");
-      } else {
-        console.log('✅ Tarea eliminada con éxito');
+      try {
+        // Usar el servicio API con token de autenticación
+        await tasksAPI.deleteTask(taskId);
+        setTasks(tasks.filter(task => task._id !== taskId));
+      } catch (err) {
+        console.error("Error eliminando tarea:", err);
+        setError("Error eliminando tarea: " + err.message);
+      } finally {
+        setDeleteLoading(false);
       }
-    } catch (err) {
-      console.error("Error al eliminar tarea:", err);
-      setError("Error al eliminar la tarea");
-    } finally {
-      setDeleteLoading(false);
     }
   };
   
   // Archivar tarea completada
   const archiveTask = async (taskId) => {
-    if (archiveLoading) return;
-    
-    try {
+    if (window.confirm("¿Archivar esta tarea? (Solo las tareas completadas pueden ser archivadas)")) {
       setArchiveLoading(true);
-      
-      // 1. Actualizar optimisticamente en UI
-      setTasks(tasks.map(t => {
-        if (t._id === taskId) {
-          return { ...t, archived: true, archivedAt: new Date() };
-        }
-        return t;
-      }));
-      
-      // 2. Archivar en el backend
-      const response = await fetch(`${API_URL}/${taskId}/archive`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      
-      if (!response.ok) {
-        // Revertir cambios en caso de error
-        console.error('Error al archivar:', await response.text());
-        const refreshRes = await fetch(API_URL);
-        if (refreshRes.ok) {
-          setTasks(await refreshRes.json());
-        }
-        setError("Error al archivar la tarea");
-      } else {
-        console.log('✅ Tarea archivada con éxito');
+      try {
+        // Usar el servicio API con token de autenticación
+        const archivedTask = await tasksAPI.archiveTask(taskId);
+        
+        setTasks(tasks.map(task => 
+          task._id === taskId ? archivedTask : task
+        ));
+      } catch (err) {
+        console.error("Error archivando tarea:", err);
+        setError("Error archivando tarea: " + err.message);
+      } finally {
+        setArchiveLoading(false);
       }
-    } catch (err) {
-      console.error("Error al archivar tarea:", err);
-      setError("Error al archivar la tarea");
-    } finally {
-      setArchiveLoading(false);
     }
   };
   
@@ -206,7 +187,7 @@ function App() {
       
       // Enviar solo la descripción actualizada, sin mencionar el status
       // Esto evita problemas con la validación del status en el backend
-      const response = await fetch(`${API_URL}/${editTaskId}`, {
+      const response = await fetch(`${API_BASE_URL}/${editTaskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ desc: editTaskText })
@@ -244,42 +225,23 @@ function App() {
 
   // Generar informe
   const generateReport = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      setError("");
+      // Usar el servicio API con token de autenticación
+      const reportData = await tasksAPI.generateReport({
+        includeArchived,
+        userId: filterUserId !== "all" ? filterUserId : undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        sortBy,
+        sortOrder
+      });
       
-      // Construir la URL con todos los parámetros de filtrado y ordenamiento
-      let reportUrl = `${API_URL.replace('/tasks', '')}/report?includeArchived=${includeArchived}`;
-      
-      // Añadir filtro de usuario si no es "all"
-      if (filterUser !== "all") {
-        reportUrl += `&user=${encodeURIComponent(filterUser)}`;
-      }
-      
-      // Añadir filtros de fecha si existen
-      if (startDate) {
-        reportUrl += `&startDate=${encodeURIComponent(startDate)}`;
-      }
-      
-      if (endDate) {
-        reportUrl += `&endDate=${encodeURIComponent(endDate)}`;
-      }
-      
-      // Añadir parámetros de ordenamiento
-      reportUrl += `&sortBy=${sortBy}&sortOrder=${sortOrder}`;
-      
-      const response = await fetch(reportUrl);
-      
-      if (!response.ok) {
-        throw new Error('Error al generar informe');
-      }
-      
-      const reportData = await response.json();
       setReport(reportData);
       setShowReport(true);
     } catch (err) {
-      console.error("Error al generar informe:", err);
-      setError("Error al generar informe");
+      console.error("Error generando informe:", err);
+      setError("Error generando informe: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -379,7 +341,6 @@ function App() {
     }
   };
 
-
   // Drag & Drop handler - versión robusta con persistencia en backend
   const onDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
@@ -412,7 +373,7 @@ function App() {
       ));
       
       // 2. Persiste el cambio en el backend
-      const response = await fetch(`${API_URL}/${draggableId}`, {
+      const response = await fetch(`${API_BASE_URL}/${draggableId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: destination.droppableId })
@@ -432,19 +393,28 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-3" style={{background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'}}>
-      {/* Título principal */}
-      <div className="w-full max-w-5xl mb-6 flex items-center justify-center gap-3">
-        <div className="flex items-center">
-          <div className="bg-[#5d2323] h-10 w-10 rounded-lg flex items-center justify-center shadow-md">
-            <span className="text-white text-2xl font-bold">M</span>
+    <div className="App">
+      {/* Encabezado con información de usuario y botón de cerrar sesión */}
+      <div className="bg-white shadow-md py-3 px-4 mb-6">
+        <div className="max-w-6xl mx-auto flex justify-between items-center">
+          <div className="flex items-center">
+            <span className="text-2xl font-bold text-gray-800">MPI - Gestor de Tareas</span>
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-800 ml-3">
-            <span className="text-[#5d2323]">MPI</span> - Eder Flores
-          </h1>
-        </div>
-        <div className="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded-full hidden md:block">
-          v1.0.0
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-600">
+              Conectado como: <strong>{currentUser?.displayName || currentUser?.username}</strong>
+              {currentUser?.role === 'admin' && <span className="ml-1 text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full">Admin</span>}
+            </span>
+            <button 
+              onClick={() => {
+                logout();
+                navigate('/login');
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm font-medium"
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </div>
       </div>
       
@@ -662,19 +632,12 @@ function App() {
             </div>
             
             <div className="mb-4">
-              <select
-                className="border border-gray-300 rounded-lg px-3 py-2.5 w-full mb-1 focus:outline-none focus:ring-2 focus:ring-[#5d2323] focus:border-transparent transition-all shadow-sm appearance-none bg-white"
-                value={user}
-                onChange={e => setUser(e.target.value)}
-                disabled={loading}
-                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23666666' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7' /%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1rem' }}
-              >
-                {usuariosPredefinidos.map(usuario => (
-                  <option key={usuario.id} value={usuario.id}>
-                    {usuario.nombre}
-                  </option>
-                ))}
-              </select>
+              <UserSelector
+                value={assignedUserId}
+                onChange={setAssignedUserId}
+                placeholder="Asignar a usuario"
+                className="border p-2 rounded w-full"
+              />
               <div className="text-xs text-gray-500 ml-1">Responsable asignado</div>
             </div>
             
@@ -727,19 +690,12 @@ function App() {
                 <label htmlFor="filterUser" className="block text-sm text-gray-700 mb-2 flex items-center font-medium">
                   <span className="mr-1">👤</span> Filtrar por usuario:
                 </label>
-                <select
-                  id="filterUser"
-                  value={filterUser}
-                  onChange={(e) => {
-                     setFilterUser(e.target.value);
-                   }}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="all">Todos los usuarios</option>
-                  {usuariosPredefinidos.map(u => (
-                    <option key={u.id || "empty"} value={u.id}>{u.nombre}</option>
-                  ))}
-                </select>
+                <UserSelector
+                  value={filterUserId}
+                  onChange={setFilterUserId}
+                  placeholder="Todos los usuarios"
+                  className="border p-2 rounded w-full"
+                />
               </div>
               
               {/* Filtro de fechas */}
@@ -777,42 +733,42 @@ function App() {
             
             {/* Opciones de ordenamiento */}
             <div className="mb-5 p-3 bg-gray-50 rounded-lg border border-gray-200">
-  <h3 className="font-bold text-base border-b pb-2 mb-3 text-gray-700">Ordenamiento</h3>
-  <div className="flex flex-col gap-2">
-    <div className="flex flex-row items-end gap-3">
-      <div className="flex flex-col flex-1">
-        <label htmlFor="sortBy" className="text-sm text-gray-700 mb-1 flex items-center font-medium">
-          <span className="mr-1">🔍</span> Ordenar por:
-        </label>
-        <select
-          id="sortBy"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="createdAt">Fecha de creación</option>
-          <option value="desc">Descripción</option>
-          <option value="status">Estado</option>
-          <option value="user">Usuario</option>
-        </select>
-      </div>
-      <div className="flex flex-col flex-1">
-        <label htmlFor="sortOrder" className="text-sm text-gray-700 mb-1 flex items-center font-medium">
-          <span className="mr-1">🔊</span> Orden:
-        </label>
-        <select
-          id="sortOrder"
-          value={sortOrder}
-          onChange={(e) => setSortOrder(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="desc">Descendente (Z-A)</option>
-          <option value="asc">Ascendente (A-Z)</option>
-        </select>
-      </div>
-    </div>
-  </div>
-</div>
+              <h3 className="font-bold text-base border-b pb-2 mb-3 text-gray-700">Ordenamiento</h3>
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-row items-end gap-3">
+                  <div className="flex flex-col flex-1">
+                    <label htmlFor="sortBy" className="text-sm text-gray-700 mb-1 flex items-center font-medium">
+                      <span className="mr-1">🔍</span> Ordenar por:
+                    </label>
+                    <select
+                      id="sortBy"
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="createdAt">Fecha de creación</option>
+                      <option value="desc">Descripción</option>
+                      <option value="status">Estado</option>
+                      <option value="user">Usuario</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col flex-1">
+                    <label htmlFor="sortOrder" className="text-sm text-gray-700 mb-1 flex items-center font-medium">
+                      <span className="mr-1">🔊</span> Orden:
+                    </label>
+                    <select
+                      id="sortOrder"
+                      value={sortOrder}
+                      onChange={(e) => setSortOrder(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="desc">Descendente (Z-A)</option>
+                      <option value="asc">Ascendente (A-Z)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
             
             <button 
               onClick={generateReport}
@@ -851,6 +807,7 @@ function App() {
         </div>
         {/* Kanban Columns con Drag & Drop */}
         <DragDropContext onDragEnd={onDragEnd}>
+
           <div className="w-full pb-2">
             <h2 className="text-xl font-bold mb-4 text-gray-800 border-b pb-2">Tablero de tareas</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3" style={{minHeight: "55vh"}}>
@@ -949,14 +906,39 @@ function App() {
                                           <div className="flex justify-between items-start">
                                             {/* Modo edición para tareas pendientes */}
                                             {editTaskId === task._id ? (
-                                              <div className="flex-1 mr-2">
-                                                <input 
-                                                  type="text" 
-                                                  value={editTaskText} 
+                                              <div className="flex flex-col space-y-2">
+                                                <input
+                                                  type="text"
+                                                  className="border p-1 w-full rounded"
+                                                  value={editTaskText}
                                                   onChange={(e) => setEditTaskText(e.target.value)}
-                                                  className="w-full border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                  autoFocus
                                                 />
+                                                <div className="w-full">
+                                                  <UserSelector
+                                                    value={editAssignedUserId}
+                                                    onChange={setEditAssignedUserId}
+                                                    placeholder="Asignar a usuario"
+                                                    className="border p-1 w-full rounded text-sm"
+                                                  />
+                                                </div>
+                                                {editLoading ? (
+                                                  <span className="p-1 text-sm">Guardando...</span>
+                                                ) : (
+                                                  <div className="flex space-x-2">
+                                                    <button
+                                                      onClick={saveEditTask}
+                                                      className="bg-green-500 text-white rounded p-1 text-sm"
+                                                    >
+                                                      Guardar
+                                                    </button>
+                                                    <button
+                                                      onClick={() => setEditTaskId(null)}
+                                                      className="bg-gray-500 text-white rounded p-1 text-sm"
+                                                    >
+                                                      Cancelar
+                                                    </button>
+                                                  </div>
+                                                )}
                                               </div>
                                             ) : (
                                               <div className="font-semibold text-gray-800 text-sm">{task.desc}</div>
@@ -979,22 +961,16 @@ function App() {
                                               {/* Botones para guardar/cancelar (cuando está en modo edición) */}
                                               {editTaskId === task._id && (
                                                 <>
-                                                  <button 
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      saveEditTask();
-                                                    }}
+                                                  <button
+                                                    onClick={saveEditTask}
                                                     className="text-green-500 hover:text-green-700 p-1 rounded-full hover:bg-green-50 transition-colors"
                                                     disabled={editLoading}
                                                     title="Guardar cambios"
                                                   >
                                                     ✓
                                                   </button>
-                                                  <button 
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      cancelEditTask();
-                                                    }}
+                                                  <button
+                                                    onClick={() => setEditTaskId(null)}
                                                     className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-50 transition-colors"
                                                     title="Cancelar edición"
                                                   >
@@ -1035,9 +1011,9 @@ function App() {
                                           
                                           {/* Usuario asignado */}
                                           <div className="mt-2 flex items-center justify-between">
-                                            {task.user ? (
+                                            {task.assignedTo ? (
                                               <div className="flex items-center bg-gray-100 text-gray-700 text-xs py-1 px-2 rounded-full">
-                                                <span className="mr-1">👤</span> {task.user}
+                                                <span className="mr-1">👤</span> {task.assignedTo.displayName || task.assignedTo.username}
                                               </div>
                                             ) : (
                                               <div className="flex items-center bg-gray-100 text-gray-500 text-xs py-1 px-2 rounded-full">
