@@ -66,7 +66,7 @@ PMI-2025/
 ```
 
 ## 👤 Autor
-- [Tu Nombre o Usuario de GitHub]
+- [RCS-Eder Flores Nuñez  GitHub]
 
 ## 📄 Licencia
 MIT

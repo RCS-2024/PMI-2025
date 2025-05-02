@@ -9,3 +9,6 @@ yarn-error.log*
 /dist
 # VSCode
 .vscode/
+crear_carpetas_final.bat 
+crear_estructura.ps1 
+ejecutar_script.bat 
