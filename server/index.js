@@ -27,19 +27,24 @@ mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
 // Registro de usuarios
 app.post("/api/register", async (req, res) => {
   try {
-    const { username, password, displayName } = req.body;
-    
+    let { username, password, displayName } = req.body;
+    console.log('[Registro] Intentando registrar usuario:', username);
+
     // Validar datos
     if (!username || !password) {
+      console.warn('[Registro] Faltan datos: usuario o contraseña');
       return res.status(400).json({ error: "Usuario y contraseña son requeridos" });
     }
-    
-    // Verificar si el usuario ya existe
+
+    username = username.trim().toLowerCase(); // Insensible a mayúsculas/minúsculas
+
+    // Verificar si el usuario ya existe (case-insensitive)
     const existingUser = await User.findOne({ username });
     if (existingUser) {
+      console.warn(`[Registro] Usuario ya existe: ${username}`);
       return res.status(400).json({ error: "El nombre de usuario ya existe" });
     }
-    
+
     // Crear nuevo usuario
     const user = new User({
       username,
@@ -47,12 +52,13 @@ app.post("/api/register", async (req, res) => {
       displayName: displayName || username,
       role: 'user' // Por defecto todos son usuarios normales
     });
-    
+
     await user.save();
-    
+    console.log(`[Registro] Usuario registrado correctamente: ${username}`);
+
     // Generar token
     const token = generateToken(user._id);
-    
+
     // No devolver la contraseña
     const userResponse = {
       _id: user._id,
@@ -60,10 +66,10 @@ app.post("/api/register", async (req, res) => {
       displayName: user.displayName,
       role: user.role
     };
-    
+
     res.status(201).json({ user: userResponse, token });
   } catch (error) {
-    console.error('Error en registro:', error);
+    console.error('[Registro] Error en registro:', error);
     res.status(500).json({ error: "Error en el registro: " + error.message });
   }
 });

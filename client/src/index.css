@@ -1,3 +1,35 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+body {
+  font-family: 'Inter', system-ui, Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4ecf7 100%);
+  min-height: 100vh;
+}
+
+h1, .text-3xl, .text-2xl {
+  font-size: 1.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em;
+}
+h2, .text-xl, .text-lg {
+  font-size: 1.15rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+}
+h3, .text-base, .text-sm {
+  font-size: 1rem !important;
+  font-weight: 500 !important;
+}
+button, .font-medium {
+  font-weight: 500 !important;
+  font-size: 0.97rem !important;
+}
+.card, .rounded-2xl, .shadow-md {
+  font-size: 0.98rem !important;
+}

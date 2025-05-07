@@ -1,59 +1,84 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import html2pdf from "html2pdf.js";
 import { useNavigate } from "react-router-dom";
 import "./index.css";
 
 // Importar context y servicios
 import { useAuth } from "./contexts/AuthContext";
 import { tasksAPI, usersAPI } from "./services/api";
-import UserSelector from "./components/UserSelector";
+import AssigneeEditor from "./components/AssigneeEditor";
 
-// Definición de columnas (droppableId SIEMPRE en inglés)
+// Usamos los servicios API ya definidos en services/api.js
+
+// Definición de columnas para el tablero Kanban
 const columns = [
   { key: "pending", label: "Tareas pendientes" },
   { key: "inprogress", label: "Tareas en curso" },
   { key: "completed", label: "Tareas completadas" },
 ];
 
-// API URL base
-const API_BASE_URL = "http://localhost:5000/api";
-
 function App() {
   const { currentUser, token, logout } = useAuth();
   const navigate = useNavigate();
   
+  // Estados
   const [tasks, setTasks] = useState([]);
   const [desc, setDesc] = useState("");
-  const [assignedUserId, setAssignedUserId] = useState(""); // ID del usuario asignado
+  const [assignedUserId, setAssignedUserId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [deleteLoading, setDeleteLoading] = useState(false); // Estado para botón eliminar
-  const [archiveLoading, setArchiveLoading] = useState(false); // Estado para botón archivar
-  const [editTaskId, setEditTaskId] = useState(null); // ID de la tarea en edición
-  const [editTaskText, setEditTaskText] = useState(""); // Texto de la tarea en edición
-  const [editAssignedUserId, setEditAssignedUserId] = useState(""); // Usuario asignado en edición
-  const [editLoading, setEditLoading] = useState(false); // Estado para la edición
-  const [includeArchived, setIncludeArchived] = useState(false); // Incluir archivados en el informe
-  const [filterUserId, setFilterUserId] = useState("all"); // Filtrar por usuario en el informe
-  const [startDate, setStartDate] = useState(""); // Fecha de inicio para filtrado
-  const [endDate, setEndDate] = useState(""); // Fecha de fin para filtrado
-  const [sortBy, setSortBy] = useState("createdAt"); // Campo por el que ordenar
-  const [sortOrder, setSortOrder] = useState("desc"); // Orden (asc/desc)
-  const [report, setReport] = useState(null); // Datos del informe
-  const [showReport, setShowReport] = useState(false); // Mostrar/ocultar modal de informe
-  const [exporting, setExporting] = useState(false); // Estado para indicar exportación en progreso
-  const [usersList, setUsersList] = useState([]); // Lista de usuarios disponibles
-  const reportRef = useRef(null); // Referencia al contenido del informe para exportar
+  const [usersList, setUsersList] = useState([]);
+  
+  // Estados para edición de descripción de tarea
+  const [editTaskId, setEditTaskId] = useState(null);
+  const [editTaskText, setEditTaskText] = useState("");
+  
+  // Estado para mostrar la previsualización del reporte
+  const [showingReport, setShowingReport] = useState(false);
+  const [reportData, setReportData] = useState(null);
 
-  // Cargar tareas del backend
-  useEffect(() => {
-    const fetchTasks = async () => {
-      if (!token) return; // No cargar tareas si no hay token
+  // Agregar tarea
+  const addTask = async () => {
+    if (desc.trim() === "") return;
+    
+    setLoading(true);
+    setError("");
+    
+    try {
+      // Llamar a la API para crear la tarea
+      const taskData = { 
+        desc, 
+        assignedUserId, 
+        status: "pending" 
+      };
       
+      console.log('Creando tarea:', taskData);
+      const newTask = await tasksAPI.createTask(taskData);
+      
+      // Agregar la nueva tarea al estado local
+      setTasks(prevTasks => [...prevTasks, newTask]);
+      
+      // Limpiar el formulario
+      setDesc("");
+      setAssignedUserId("");
+      
+      // Mostrar mensaje de éxito (opcional)
+      console.log('Tarea creada correctamente:', newTask);
+    } catch (err) {
+      console.error('Error agregando tarea:', err);
+      setError("Error agregando tarea: " + (err.message || 'Error desconocido'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Cargar tareas al iniciar
+  useEffect(() => {
+    if (!token) return;
+    
+    const fetchTasks = async () => {
       setLoading(true);
       try {
-        // Usar el servicio API con autenticación
         const data = await tasksAPI.getTasks();
         setTasks(data);
       } catch (err) {
@@ -63,14 +88,15 @@ function App() {
         setLoading(false);
       }
     };
+    
     fetchTasks();
   }, [token]);
   
-  // Cargar usuarios disponibles
+  // Cargar usuarios
   useEffect(() => {
+    if (!token) return;
+    
     const fetchUsers = async () => {
-      if (!token) return;
-      
       try {
         const users = await usersAPI.getAllUsers();
         setUsersList(users);
@@ -82,64 +108,27 @@ function App() {
     fetchUsers();
   }, [token]);
 
-  // Agregar tarea al backend
-  const addTask = async () => {
-    if (desc.trim() === "") return;
+  // Eliminar una tarea
+  const deleteTask = async (taskId) => {
+    if (!window.confirm('¿Estás seguro de que deseas eliminar esta tarea? Esta acción no se puede deshacer.')) {
+      return;
+    }
+    
     setLoading(true);
-    setError("");
+    
     try {
-      // Usar el servicio API con token de autenticación
-      const newTask = await tasksAPI.createTask({ 
-        desc, 
-        assignedUserId, 
-        status: "pending" 
-      });
+      // Usar el servicio de API para eliminar la tarea
+      await tasksAPI.deleteTask(taskId);
       
-      setTasks([...tasks, newTask]);
-      setDesc("");
-      setAssignedUserId("");
+      // Actualizar el estado local eliminando la tarea
+      setTasks(prevTasks => prevTasks.filter(task => task._id !== taskId));
+      
+      console.log('Tarea eliminada correctamente');
     } catch (err) {
-      console.error('Error agregando tarea:', err);
-      setError("Error agregando tarea: " + err.message);
+      console.error('Error eliminando tarea:', err);
+      setError("Error eliminando tarea: " + (err.message || 'Error desconocido'));
     } finally {
       setLoading(false);
-    }
-  };
-  
-  // Eliminar tarea
-  const deleteTask = async (taskId) => {
-    if (window.confirm("¿Seguro que desea eliminar esta tarea?")) {
-      setDeleteLoading(true);
-      try {
-        // Usar el servicio API con token de autenticación
-        await tasksAPI.deleteTask(taskId);
-        setTasks(tasks.filter(task => task._id !== taskId));
-      } catch (err) {
-        console.error("Error eliminando tarea:", err);
-        setError("Error eliminando tarea: " + err.message);
-      } finally {
-        setDeleteLoading(false);
-      }
-    }
-  };
-  
-  // Archivar tarea completada
-  const archiveTask = async (taskId) => {
-    if (window.confirm("¿Archivar esta tarea? (Solo las tareas completadas pueden ser archivadas)")) {
-      setArchiveLoading(true);
-      try {
-        // Usar el servicio API con token de autenticación
-        const archivedTask = await tasksAPI.archiveTask(taskId);
-        
-        setTasks(tasks.map(task => 
-          task._id === taskId ? archivedTask : task
-        ));
-      } catch (err) {
-        console.error("Error archivando tarea:", err);
-        setError("Error archivando tarea: " + err.message);
-      } finally {
-        setArchiveLoading(false);
-      }
     }
   };
   
@@ -148,904 +137,659 @@ function App() {
     setEditTaskId(taskId);
     setEditTaskText(taskDesc);
   };
-
-  // Cancelar edición
-  const cancelEditTask = () => {
-    setEditTaskId(null);
-    setEditTaskText("");
-  };
-
-  // Función para guardar la tarea editada
+  
+  // Guardar la edición de una tarea
   const saveEditTask = async () => {
-    // Verificar que la descripción no esté vacía
-    if (editTaskText.trim() === "") {
-      setError("La descripción no puede estar vacía");
-      return;
-    }
+    if (editTaskText.trim() === "") return;
+    
+    setLoading(true);
+    setError("");
     
     try {
-      // Encontrar la tarea actual para comparar
-      const currentTask = tasks.find(task => task._id === editTaskId);
-      
-      // Si la tarea no existe en el estado local, mostrar error
-      if (!currentTask) {
-        setError("No se encontró la tarea a editar");
-        setEditTaskId(null);
-        setEditTaskText("");
-        return;
-      }
-      
-      // Si la descripción no ha cambiado, simplemente cerrar el modo edición
-      if (currentTask.desc === editTaskText) {
-        setEditTaskId(null);
-        setEditTaskText("");
-        return;
-      }
-      
-      setEditLoading(true);
-      setError("");
-      
-      // Enviar solo la descripción actualizada, sin mencionar el status
-      // Esto evita problemas con la validación del status en el backend
-      const response = await fetch(`${API_BASE_URL}/${editTaskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ desc: editTaskText })
+      // Usar el servicio de API en lugar de fetch directo
+      const updatedTask = await tasksAPI.updateTask(editTaskId, {
+        desc: editTaskText
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        let errorMessage = errorData.error;
-        
-        // Mejorar mensajes de error
-        if (errorMessage.includes('validación')) {
-          errorMessage = errorMessage.replace('Error de validación: ', '');
-        }
-        throw new Error(errorMessage || "Error al editar tarea");
-      }
-      
-      const updatedTask = await response.json();
-      
       // Actualizar el estado local
-      setTasks(prevTasks => prevTasks.map(task => 
-        task._id === editTaskId ? updatedTask : task
-      ));
+      setTasks(prevTasks => 
+        prevTasks.map(task => 
+          task._id === editTaskId ? updatedTask : task
+        )
+      );
       
-      // Resetear estados de edición
+      // Resetear estado de edición
       setEditTaskId(null);
       setEditTaskText("");
       
+      console.log('Tarea actualizada correctamente:', updatedTask);
     } catch (err) {
-      console.error("Error al editar tarea:", err);
-      setError(err.message || "Error al editar tarea");
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
-  // Generar informe
-  const generateReport = async () => {
-    setLoading(true);
-    try {
-      // Usar el servicio API con token de autenticación
-      const reportData = await tasksAPI.generateReport({
-        includeArchived,
-        userId: filterUserId !== "all" ? filterUserId : undefined,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
-        sortBy,
-        sortOrder
-      });
-      
-      setReport(reportData);
-      setShowReport(true);
-    } catch (err) {
-      console.error("Error generando informe:", err);
-      setError("Error generando informe: " + err.message);
+      console.error('Error actualizando tarea:', err);
+      setError("Error actualizando tarea: " + (err.message || 'Error desconocido'));
     } finally {
       setLoading(false);
     }
   };
   
-  // Exportar informe a PDF
-  const exportToPDF = () => {
-    if (!report || !reportRef.current) return;
-    
+  // Exportar a Excel
+  const exportToExcel = async () => {
     try {
-      setExporting(true);
+      // Obtener datos actualizados para el reporte
+      const data = await tasksAPI.getTasks();
       
-      const element = reportRef.current;
-      const opt = {
-        margin: [10, 10, 10, 10],
-        filename: `informe-tareas-${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
+      // Preparar los datos para el Excel
+      const tableData = data.map(task => ({
+        'ID': task._id,
+        'Descripción': task.desc,
+        'Estado': task.status === 'pending' ? 'Pendiente' : 
+                 task.status === 'inprogress' ? 'En progreso' : 'Completada',
+        'Responsable': task.assignedTo ? (task.assignedTo.displayName || task.assignedTo.username) : 'Sin asignar',
+        'Fecha de creación': new Date(task.createdAt).toLocaleDateString(),
+        'Última actualización': new Date(task.updatedAt).toLocaleDateString()
+      }));
       
-      // Usar timeout para que el indicador de carga se muestre
-      setTimeout(() => {
-        html2pdf()
-          .set(opt)
-          .from(element)
-          .save()
-          .then(() => {
-            setExporting(false);
-            console.log('PDF generado y guardado con éxito');
-          })
-          .catch(err => {
-            console.error('Error al generar PDF:', err);
-            setExporting(false);
-          });
-      }, 100);
-      
-    } catch (err) {
-      console.error("Error al exportar a PDF:", err);
-      setExporting(false);
-    }
-  };
-  
-  // Exportar datos a CSV
-  const exportToCSV = () => {
-    if (!report) return;
-    
-    try {
-      setExporting(true);
-      
-      // Preparar encabezados
-      let csvContent = "data:text/csv;charset=utf-8,";
-      csvContent += "Tarea,Usuario,Estado,Fecha de creación" + (includeArchived ? ",Fecha de archivado\n" : "\n");
-      
-      // Agregar datos de tareas
-      report.tasks.forEach(task => {
-        // Escapar comillas en la descripción
-        const desc = task.desc.replace(/"/g, '""');
-        const status = task.archived ? "Archivada" : 
-                     task.status === "pending" ? "Pendiente" :
-                     task.status === "inprogress" ? "En Curso" : "Completada";
-        
-        const row = [
-          `"${desc}"`,
-          `"${task.user || 'Sin asignar'}"`,
-          `"${status}"`,
-          `"${new Date(task.createdAt).toLocaleDateString()}"`
-        ];
-        
-        if (includeArchived && task.archived) {
-          row.push(`"${new Date(task.archivedAt).toLocaleDateString()}"`); 
-        } else if (includeArchived) {
-          row.push(""); // Columna vacía si no está archivada
-        }
-        
-        csvContent += row.join(",") + "\n";
-      });
-      
-      // Crear enlace de descarga
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `tareas-${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
-      document.body.appendChild(link);
-      
-      // Simular clic
-      link.click();
-      
-      // Limpiar
-      document.body.removeChild(link);
-      setExporting(false);
-      console.log('CSV generado y guardado con éxito');
-      
-    } catch (err) {
-      console.error("Error al exportar a CSV:", err);
-      setExporting(false);
-    }
-  };
-
-  // Drag & Drop handler - versión robusta con persistencia en backend
-  const onDragEnd = async (result) => {
-    const { destination, source, draggableId } = result;
-    console.log("Drag result:", result);
-    
-    // Si no hay destino o es el mismo origen, no hacemos nada
-    if (!destination || destination.droppableId === source.droppableId) return;
-    
-    try {
-      // Encuentra la tarea movida
-      const taskToMove = tasks.find(t => t._id === draggableId);
-      
-      // Si no encontramos la tarea, salimos sin error
-      if (!taskToMove) {
-        console.log("Tarea no encontrada:", draggableId);
+      if (tableData.length === 0) {
+        alert('No hay datos para exportar');
         return;
       }
       
-      console.log("Moviendo tarea:", taskToMove.desc, "de", source.droppableId, "a", destination.droppableId);
+      // Crear un libro de Excel usando biblioteca externa (como SheetJS/xlsx)
+      // Por ahora simularemos la exportación con un archivo CSV
+      const headers = Object.keys(tableData[0]).join(',');
+      const rows = tableData.map(row => Object.values(row).join(','));
+      const csvContent = [headers, ...rows].join('\n');
       
-      // 1. Actualiza el estado local inmediatamente (para UI responsiva)
-      const updatedTask = {
-        ...taskToMove,
-        status: destination.droppableId
+      // Crear blob y link para descarga
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `tareas_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log('Exportación a Excel (CSV) completada');
+    } catch (err) {
+      console.error('Error exportando a Excel:', err);
+      alert('Error al exportar a Excel: ' + (err.message || 'Error desconocido'));
+    }
+  };
+  
+  // Mostrar reporte con formato estructurado
+  const showReport = async () => {
+    try {
+      // Obtener datos actualizados para el reporte
+      const data = await tasksAPI.getTasks();
+      
+      if (data.length === 0) {
+        alert('No hay tareas para mostrar en el reporte');
+        return;
+      }
+      
+      // Organizar las tareas por estado
+      const reportStructure = {
+        completed: data.filter(task => task.status === 'completed'),
+        inprogress: data.filter(task => task.status === 'inprogress'),
+        pending: data.filter(task => task.status === 'pending')
       };
       
-      // Actualiza las tareas localmente
-      setTasks(tasks.map(t => 
-        t._id === draggableId ? updatedTask : t
-      ));
+      // Guardar en el estado
+      setReportData(reportStructure);
+      setShowingReport(true);
       
-      // 2. Persiste el cambio en el backend
-      const response = await fetch(`${API_BASE_URL}/${draggableId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: destination.droppableId })
+      console.log('Previsualización del reporte generada');
+    } catch (err) {
+      console.error('Error generando previsualización:', err);
+      alert('Error al generar la previsualización: ' + (err.message || 'Error desconocido'));
+    }
+  };
+  
+  // Cerrar la previsualización del reporte
+  const closeReport = () => {
+    setShowingReport(false);
+    setReportData(null);
+  };
+  
+  // Exportar a PDF
+  const exportToPDF = async () => {
+    try {
+      // Obtener datos actualizados para el reporte
+      const data = await tasksAPI.getTasks();
+      
+      if (data.length === 0) {
+        alert('No hay datos para exportar');
+        return;
+      }
+      
+      // Por ahora, solo mostrar un mensaje informativo
+      alert('Esta funcionalidad requiere la biblioteca jsPDF u otra similar.');
+      console.log('Se requiere implementar la exportación a PDF con datos:', data.length, 'tareas');
+      
+      // Código para generar PDF (requiere la biblioteca jsPDF)
+      /* 
+      const doc = new jsPDF();
+      
+      // Añadir título
+      doc.setFontSize(18);
+      doc.text('Reporte de Tareas', 20, 20);
+      
+      // Configurar tabla
+      doc.setFontSize(11);
+      const columns = ['Descripción', 'Estado', 'Responsable', 'Fecha'];
+      const rows = tasks.map(task => [
+        task.desc,
+        task.status === 'pending' ? 'Pendiente' : 
+          task.status === 'inprogress' ? 'En progreso' : 'Completada',
+        task.assignedTo ? (task.assignedTo.displayName || task.assignedTo.username) : 'Sin asignar',
+        new Date(task.createdAt).toLocaleDateString()
+      ]);
+      
+      // Añadir tabla al documento
+      doc.autoTable({
+        head: [columns],
+        body: rows,
+        startY: 30,
+        theme: 'grid',
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [66, 139, 202] }
       });
       
-      if (!response.ok) {
-        // Si hay un error, mostramos mensaje pero NO revertimos UI
-        // para evitar saltos visuales
-        console.error('Error al persistir cambio:', await response.text());
-      } else {
-        console.log('✅ Cambio guardado en el backend');
-      }
+      // Descargar el PDF
+      doc.save(`tareas_${new Date().toISOString().split('T')[0]}.pdf`);
+      */
     } catch (err) {
-      console.error("Error en drag & drop:", err);
-      // No cambiamos loading para evitar problemas con react-beautiful-dnd
+      console.error('Error exportando a PDF:', err);
+      alert('Error al exportar a PDF: ' + (err.message || 'Error desconocido'));
+    }
+  };
+  
+  // Manejar drag and drop
+  const onDragEnd = async (result) => {
+    const { source, destination, draggableId } = result;
+    
+    // Si no hay destino o es el mismo, no hacer nada
+    if (!destination || 
+        (source.droppableId === destination.droppableId && 
+         source.index === destination.index)) {
+      return;
+    }
+    
+    // Mapeo de columnas a estados
+    const statusMap = {
+      pending: "pending",
+      inprogress: "inprogress",
+      completed: "completed"
+    };
+    
+    // Nuevo estado para la tarea
+    const newStatus = statusMap[destination.droppableId];
+    
+    // Actualizar estado local primero (optimistic update)
+    const updatedTasks = tasks.map(task => {
+      if (task._id === draggableId) {
+        return { ...task, status: newStatus };
+      }
+      return task;
+    });
+    
+    setTasks(updatedTasks);
+    
+    // Enviar actualización al backend
+    try {
+      await tasksAPI.updateTask(draggableId, { status: newStatus });
+    } catch (error) {
+      console.error('Error al actualizar tarea:', error);
+      // Revertir cambios en caso de error
+      const originalTask = tasks.find(t => t._id === draggableId);
+      if (originalTask) {
+        setTasks(tasks.map(t => 
+          t._id === draggableId ? originalTask : t
+        ));
+      }
     }
   };
 
   return (
-    <div className="App">
-      {/* Encabezado con información de usuario y botón de cerrar sesión */}
-      <div className="bg-white shadow-md py-3 px-4 mb-6">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <div className="flex items-center">
-            <span className="text-2xl font-bold text-gray-800">MPI - Gestor de Tareas</span>
+    <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100">
+      {/* Modal de previsualización del reporte */}
+      {showingReport && reportData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white/90 rounded-2xl shadow-2xl p-6 flex-1 min-w-[300px] backdrop-blur-md border border-purple-100 transition-transform duration-200 hover:scale-[1.02] hover:shadow-3xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Listado de Tareas de la semana</h2>
+              <button 
+                onClick={closeReport}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="space-y-4 text-left">
+              {/* Actividades Completadas */}
+              <div>
+                <h3 className="text-lg font-semibold flex items-center text-green-700">
+                  <span className="mr-2">✅</span> Actividades Completadas
+                </h3>
+                <ul className="ml-8 mt-2 space-y-1">
+                  {reportData.completed.length > 0 ? (
+                    reportData.completed.map(task => (
+                      <li key={task._id} className="flex items-start">
+                        <span className="mr-1 text-green-600">✔</span>
+                        <span>
+                          {task.assignedTo ? (
+                            <span className="font-medium">{task.assignedTo.displayName || task.assignedTo.username}- </span>
+                          ) : null}
+                          {task.desc}
+                        </span>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-gray-500 italic">No hay actividades completadas</li>
+                  )}
+                </ul>
+              </div>
+              
+              {/* Actividades en Progreso */}
+              <div>
+                <h3 className="text-lg font-semibold flex items-center text-yellow-700">
+                  <span className="mr-2">✅</span> Actividades en Progreso
+                </h3>
+                <ul className="ml-8 mt-2 space-y-1">
+                  {reportData.inprogress.length > 0 ? (
+                    reportData.inprogress.map(task => (
+                      <li key={task._id} className="flex items-start">
+                        <span className="mr-1 text-yellow-600">✔</span>
+                        <span>
+                          {task.assignedTo ? (
+                            <span className="font-medium">{task.assignedTo.displayName || task.assignedTo.username}- </span>
+                          ) : null}
+                          {task.desc}
+                        </span>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-gray-500 italic">No hay actividades en progreso</li>
+                  )}
+                </ul>
+              </div>
+              
+              {/* Actividades Pendientes */}
+              <div>
+                <h3 className="text-lg font-semibold flex items-center text-blue-700">
+                  <span className="mr-2">✅</span> Actividades Pendientes
+                </h3>
+                <ul className="ml-8 mt-2 space-y-1">
+                  {reportData.pending.length > 0 ? (
+                    reportData.pending.map(task => (
+                      <li key={task._id} className="flex items-start">
+                        <span className="mr-1 text-blue-600">✔</span>
+                        <span>
+                          {task.assignedTo ? (
+                            <span className="font-medium">{task.assignedTo.displayName || task.assignedTo.username}- </span>
+                          ) : null}
+                          {task.desc}
+                        </span>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-gray-500 italic">No hay actividades pendientes</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+            
+            <div className="mt-6 flex justify-end space-x-2">
+              <button
+                onClick={closeReport}
+                className="px-4 py-2 bg-gray-200 rounded-md text-gray-700 hover:bg-gray-300"
+              >
+                Cerrar
+              </button>
+              <button
+                onClick={exportToExcel}
+                className="px-4 py-2 bg-green-600 rounded-md text-white hover:bg-green-700"
+              >
+                Exportar a Excel
+              </button>
+              <button
+                onClick={exportToPDF}
+                className="px-4 py-2 bg-red-600 rounded-md text-white hover:bg-red-700"
+              >
+                Exportar a PDF
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">
-              Conectado como: <strong>{currentUser?.displayName || currentUser?.username}</strong>
-              {currentUser?.role === 'admin' && <span className="ml-1 text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full">Admin</span>}
+        </div>
+      )}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+          <h1 className="text-xl font-bold text-gray-900">MPI - Gestor de Tareas</h1>
+          <div className="flex items-center">
+            <span className="mr-3 text-sm text-gray-600">
+              Conectado como: <span className="font-medium">{currentUser?.displayName || currentUser?.username}</span>
             </span>
             <button 
-              onClick={() => {
-                logout();
-                navigate('/login');
-              }}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm font-medium"
-            >
+              onClick={logout}
+              className="bg-red-600 hover:bg-red-700 text-white text-sm py-1 px-3 rounded transition-colors">
               Cerrar sesión
             </button>
           </div>
         </div>
-      </div>
-      
-      {/* Modal de Informe */}
-      {showReport && report && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-3xl max-h-[80vh] overflow-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Informe de Tareas</h2>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex flex-col md:flex-row gap-6">
+            {/* Formulario para agregar tarea */}
+            <div className="w-full lg:w-1/4 p-3 bg-gray-50 rounded-lg">
+              <h2 className="text-lg font-medium mb-4 flex items-center">
+                <svg className="w-5 h-5 mr-2 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                </svg>
+                Agregar nueva tarea
+              </h2>
               
-              {/* Botones de exportación */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={exportToPDF}
-                  disabled={exporting}
-                  className={`flex items-center gap-1 px-3 py-1 text-sm rounded ${exporting ? 'bg-gray-200 text-gray-500' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
-                  title="Exportar a PDF"
-                >
-                  <span className="text-xs">📄</span> 
-                  {exporting ? 'Exportando...' : 'PDF'}
-                </button>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Descripción de la tarea</label>
+                  <textarea 
+                    value={desc}
+                    onChange={(e) => setDesc(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="Describe la tarea a realizar"
+                    rows="3"
+                  ></textarea>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Asignar a usuario</label>
+                  <select
+                    value={assignedUserId}
+                    onChange={(e) => setAssignedUserId(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">Seleccionar usuario</option>
+                    {usersList.map(user => (
+                      <option key={user._id} value={user._id}>
+                        {user.displayName || user.username}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 
                 <button
-                  onClick={exportToCSV}
-                  disabled={exporting}
-                  className={`flex items-center gap-1 px-3 py-1 text-sm rounded ${exporting ? 'bg-gray-200 text-gray-500' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
-                  title="Exportar a CSV (Excel)"
+                  onClick={addTask}
+                  disabled={loading || desc.trim() === ''}
+                  className={`w-full py-2 px-4 rounded-md text-white font-medium ${loading || desc.trim() === '' ? 'bg-indigo-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
                 >
-                  <span className="text-xs">📂</span> 
-                  {exporting ? 'Exportando...' : 'CSV'}
+                  {loading ? 'Agregando...' : 'Agregar tarea'}
                 </button>
                 
+                {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+              </div>
+            </div>
+            
+            {/* Tablero Kanban */}
+            <div className="w-full lg:w-3/4 pl-0 lg:pl-6 mt-6 lg:mt-0">
+              <h2 className="text-lg font-medium mb-4">Tablero de tareas</h2>
+              
+              <DragDropContext onDragEnd={onDragEnd}>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {columns.map((column) => {
+  // Color classes per column
+  let colBg = "", colBorder = "", headerBg = "", headerText = "";
+  if (column.key === "pending") {
+    colBg = "bg-yellow-50 border-yellow-200";
+    colBorder = "border-l-4 border-yellow-400";
+    headerBg = "bg-yellow-100/80";
+    headerText = "text-yellow-800";
+  } else if (column.key === "inprogress") {
+    colBg = "bg-blue-50 border-blue-200";
+    colBorder = "border-l-4 border-blue-400";
+    headerBg = "bg-blue-100/80";
+    headerText = "text-blue-800";
+  } else if (column.key === "completed") {
+    colBg = "bg-green-50 border-green-200";
+    colBorder = "border-l-4 border-green-400";
+    headerBg = "bg-green-100/80";
+    headerText = "text-green-800";
+  }
+  return (
+    <div key={column.key} className={`rounded-2xl shadow-md p-3 ${colBg} border transition-all duration-200`}>
+      <div className={`flex items-center mb-3 px-2 py-1 rounded-lg ${headerBg} ${headerText} font-semibold text-base`}> 
+        <span className="mr-2">
+          {column.key === "pending" && "⏳"}
+          {column.key === "inprogress" && "🚧"}
+          {column.key === "completed" && "✅"}
+        </span>
+        <span>{column.label}</span>
+        <span className="ml-2 bg-white/60 text-xs py-0.5 px-2 rounded-full border border-gray-200">
+          {tasks.filter(t => t.status === column.key && !t.archived).length}
+        </span>
+      </div>
+                      
+                      <Droppable droppableId={column.key}>
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.droppableProps}
+                            className="min-h-[150px] transition-colors"
+                          >
+                            {tasks
+  .filter(task => task.status === column.key && !task.archived)
+  .map((task, index) => (
+    <Draggable
+      key={task._id}
+      draggableId={task._id}
+      index={index}
+    >
+      {(provided, snapshot) => {
+        // Card color border per status
+        let cardBorder = "", cardBg = "", cardText = "", cardIcon = null;
+        if (column.key === "pending") {
+          cardBorder = "border-l-4 border-yellow-400";
+          cardBg = "bg-white";
+          cardText = "text-gray-800";
+          cardIcon = "⏳";
+        } else if (column.key === "inprogress") {
+          cardBorder = "border-l-4 border-blue-400";
+          cardBg = "bg-white";
+          cardText = "text-gray-800";
+          cardIcon = "🚧";
+        } else if (column.key === "completed") {
+          cardBorder = "border-l-4 border-green-400";
+          cardBg = "bg-green-50";
+          cardText = "text-green-800";
+          cardIcon = "✅";
+        }
+        return (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            className={`rounded-2xl shadow-md hover:shadow-xl transition-shadow duration-200 my-2 p-4 border ${cardBorder} ${cardBg} ${cardText} flex flex-col gap-2`}
+          >
+            <div className="flex items-start gap-2">
+              <span className="text-xl">{cardIcon}</span>
+              <span className="flex-1 font-medium break-words">{task.desc}</span>
+              <div className="flex space-x-1">
                 <button 
-                  onClick={() => setShowReport(false)}
-                  className="text-gray-500 hover:text-gray-700 ml-2"
+                  onClick={() => startEditTask(task._id, task.desc)}
+                  className="text-gray-400 hover:text-blue-600 text-xs"
+                  title="Editar descripción"
+                >
+                  ✎
+                </button>
+                <button 
+                  onClick={() => deleteTask(task._id)}
+                  className="text-gray-400 hover:text-red-600 text-xs"
+                  title="Eliminar tarea"
                 >
                   ✕
                 </button>
               </div>
             </div>
-            
-            {/* Contenido del informe - con referencia para exportar */}
-            <div ref={reportRef}>
-            
-            {/* Estadísticas */}
-            <div className="mb-4">
-              <h3 className="font-semibold mb-2">Resumen</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div className="bg-gray-100 p-3 rounded">
-                  <div className="text-sm text-gray-500">Total</div>
-                  <div className="text-xl font-bold">{report.totalTasks}</div>
-                </div>
-                <div className="bg-blue-50 p-3 rounded">
-                  <div className="text-sm text-gray-500">Pendientes</div>
-                  <div className="text-xl font-bold">{report.byStatus.pending}</div>
-                </div>
-                <div className="bg-yellow-50 p-3 rounded">
-                  <div className="text-sm text-gray-500">En Curso</div>
-                  <div className="text-xl font-bold">{report.byStatus.inprogress}</div>
-                </div>
-                <div className="bg-green-50 p-3 rounded">
-                  <div className="text-sm text-gray-500">Completadas</div>
-                  <div className="text-xl font-bold">{report.byStatus.completed}</div>
-                </div>
-                {includeArchived && (
-                  <div className="bg-gray-200 p-3 rounded">
-                    <div className="text-sm text-gray-500">Archivadas</div>
-                    <div className="text-xl font-bold">{report.byStatus.archived}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {/* Por usuario */}
-            <div className="mb-4">
-              <h3 className="font-semibold mb-2">Por Usuario</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border p-2 text-left">Usuario</th>
-                      <th className="border p-2 text-center">Total</th>
-                      <th className="border p-2 text-center">Pendientes</th>
-                      <th className="border p-2 text-center">En Curso</th>
-                      <th className="border p-2 text-center">Completadas</th>
-                      {includeArchived && (
-                        <th className="border p-2 text-center">Archivadas</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(report.byUser).map(([userName, stats]) => (
-                      <tr key={userName} className="hover:bg-gray-50">
-                        <td className="border p-2">{userName}</td>
-                        <td className="border p-2 text-center">{stats.total}</td>
-                        <td className="border p-2 text-center">{stats.pending}</td>
-                        <td className="border p-2 text-center">{stats.inprogress}</td>
-                        <td className="border p-2 text-center">{stats.completed}</td>
-                        {includeArchived && (
-                          <td className="border p-2 text-center">{stats.archived}</td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            
-            {/* Lista de tareas agrupadas por estado */}
-            <div>
-              <h3 className="font-semibold mb-2">Listado de Tareas</h3>
-
-              {/* Completadas */}
-              <div className="mb-3">
-                <div className="flex items-center gap-2 mb-1 text-green-700 font-bold text-base">
-                  <span>✅</span> Actividades Completadas
-                </div>
-                <ul className="list-none pl-0">
-                  {report.tasks.filter(t => t.status === 'completed' && !t.archived).length === 0 && (
-                    <li className="text-gray-500 italic">No hay actividades completadas</li>
-                  )}
-                  {report.tasks.filter(t => t.status === 'completed' && !t.archived).map(task => (
-                    <li key={task._id} className="flex items-center gap-2 mb-1 text-green-900">
-                      <span className="text-lg">✔</span> {task.desc}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              {/* En Progreso */}
-              <div className="mb-3">
-                <div className="flex items-center gap-2 mb-1 text-yellow-700 font-bold text-base">
-                  <span>✅</span> Actividades en Progreso
-                </div>
-                <ul className="list-none pl-0">
-                  {report.tasks.filter(t => t.status === 'inprogress').length === 0 && (
-                    <li className="text-gray-500 italic">No hay actividades en progreso</li>
-                  )}
-                  {report.tasks.filter(t => t.status === 'inprogress').map(task => (
-                    <li key={task._id} className="flex items-center gap-2 mb-1 text-yellow-900">
-                      <span className="text-lg">✔</span> {task.desc}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              {/* Pendientes */}
-              <div className="mb-3">
-                <div className="flex items-center gap-2 mb-1 text-blue-700 font-bold text-base">
-                  <span>✅</span> Actividades Pendientes
-                </div>
-                <ul className="list-none pl-0">
-                  {report.tasks.filter(t => t.status === 'pending').length === 0 && (
-                    <li className="text-gray-500 italic">No hay actividades pendientes</li>
-                  )}
-                  {report.tasks.filter(t => t.status === 'pending').map(task => (
-                    <li key={task._id} className="flex items-center gap-2 mb-1 text-blue-900">
-                      <span className="text-lg">✔</span> {task.desc}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              
-              {/* Tareas Archivadas - Solo si está activada la opción */}
-              {includeArchived && (
-                <div className="mb-4">
-                  <h4 className="font-medium mb-2 bg-gray-100 p-2 rounded-md flex items-center">
-                    <div className="w-3 h-3 rounded-full bg-gray-400 mr-2"></div>
-                    Archivadas ({report.tasks.filter(t => t.archived).length})
-                  </h4>
-                  <div className="space-y-2 pl-4">
-                    {report.tasks
-                      .filter(task => task.archived)
-                      .map(task => (
-                        <div key={task._id} className="border p-3 rounded hover:bg-gray-50">
-                          <div className="flex justify-between">
-                            <div className="font-medium">{task.desc}</div>
-                            <div className="px-2 py-1 rounded text-xs bg-gray-200">Archivada</div>
-                          </div>
-                          <div className="text-sm text-gray-500 mt-1">
-                            {task.user && <span className="mr-3">Usuario: {task.user}</span>}
-                            <span>Creada: {new Date(task.createdAt).toLocaleDateString()}</span>
-                            <span className="ml-3">Archivada: {new Date(task.archivedAt).toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                      ))}
-                    {report.tasks.filter(t => t.archived).length === 0 && 
-                      <div className="text-gray-500 italic">No hay tareas archivadas</div>
-                    }
-                  </div>
-                </div>
-              )}
-            </div> {/* Cierre del div con referencia */}
-          </div>
-          </div>
-        </div>
-      )}
-      
-      <div className="bg-white rounded-lg shadow-xl p-4 w-full max-w-full md:max-w-[1200px] border border-gray-200">
-        <div className="flex flex-col md:flex-row gap-4">
-        {/* Sidebar */}
-        <div className="w-full md:w-56 flex flex-col gap-4">
-          <div className="bg-white rounded-xl p-6 mb-4 border border-gray-200 shadow-sm">
-            <h2 className="font-bold text-lg mb-3 flex items-center text-gray-800">
-              <span className="mr-2 text-[#5d2323]">➕</span> 
-              Agregar nueva tarea
-            </h2>
-            <div className="mb-4">
-              <input
-                className="border border-gray-300 rounded-lg px-3 py-2.5 w-full mb-1 focus:outline-none focus:ring-2 focus:ring-[#5d2323] focus:border-transparent transition-all shadow-sm"
-                placeholder="Introduzca la descripción de la tarea"
-                value={desc}
-                onChange={e => setDesc(e.target.value)}
-                disabled={loading}
+            <div className="flex items-center justify-between mt-1">
+              <AssigneeEditor 
+                task={task} 
+                onUpdate={(updatedTask) => {
+                  // Actualizar la tarea en el estado local
+                  setTasks(tasks.map(t => 
+                    t._id === updatedTask._id ? updatedTask : t
+                  ));
+                }} 
               />
-              <div className="text-xs text-gray-500 ml-1">Descripción de la tarea a realizar</div>
+              <div className="text-gray-400 text-xs">
+                {new Date(task.createdAt).toLocaleDateString()}
+              </div>
             </div>
-            
-            <div className="mb-4">
-              <UserSelector
-                value={assignedUserId}
-                onChange={setAssignedUserId}
-                placeholder="Asignar a usuario"
-                className="border p-2 rounded w-full"
-              />
-              <div className="text-xs text-gray-500 ml-1">Responsable asignado</div>
-            </div>
-            
-            <button
-              onClick={addTask}
-              className="bg-[#5d2323] text-white rounded-xl px-4 py-2.5 w-full hover:bg-[#7a2e2e] transition-colors mt-2 font-semibold shadow flex items-center justify-center"
-              disabled={loading}
-            >
-              {loading ? 
-                <span className="flex items-center">
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Agregando...
-                </span> : 
-                "Agregar tarea"
-              }
-            </button>
-            {error && <div className="text-red-500 text-sm mt-2">Error al agregar una tarea</div>}
           </div>
-          <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-            <h2 className="font-bold text-lg mb-3 flex items-center text-gray-800">
-              <span className="mr-2">📊</span> 
-              Generar informe
-            </h2>
-            
-            {/* Opciones de filtrado */}
-            <div className="space-y-4 mb-4">
-              <h3 className="font-bold text-base border-b pb-2 mb-2 text-gray-700">Filtros</h3>
-              
-              {/* Filtro de archivadas */}
-              <div className="flex items-center gap-2 mb-4 p-2 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="archived"
-                    checked={includeArchived}
-                    onChange={e => setIncludeArchived(e.target.checked)}
-                    className="form-checkbox h-5 w-5 text-blue-600 transition duration-150 ease-in-out mr-2"
-                  />
-                </div>
-                <label htmlFor="archived" className="text-base text-gray-800 cursor-pointer select-none flex items-center font-medium">
-                  <span className="mr-1">📂</span> Incluir tareas archivadas
-                </label>
-              </div>
-              
-              {/* Filtro de usuario */}
-              <div className="mb-4">
-                <label htmlFor="filterUser" className="block text-sm text-gray-700 mb-2 flex items-center font-medium">
-                  <span className="mr-1">👤</span> Filtrar por usuario:
-                </label>
-                <UserSelector
-                  value={filterUserId}
-                  onChange={setFilterUserId}
-                  placeholder="Todos los usuarios"
-                  className="border p-2 rounded w-full"
-                />
-              </div>
-              
-              {/* Filtro de fechas */}
-              <div className="grid grid-cols-2 gap-2 mb-4">
-                <div>
-                  <label htmlFor="startDate" className="block text-sm text-gray-700 mb-2 flex items-center font-medium">
-                    <span className="mr-1">📅</span> Desde:
-                  </label>
-                  <input
-                    type="date"
-                    id="startDate"
-                    value={startDate}
-                    onChange={(e) => {
-                       setStartDate(e.target.value);
-                     }}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="endDate" className="block text-sm text-gray-700 mb-2 flex items-center font-medium">
-                    <span className="mr-1">📅</span> Hasta:
-                  </label>
-                  <input
-                    type="date"
-                    id="endDate"
-                    value={endDate}
-                    onChange={(e) => {
-                       setEndDate(e.target.value);
-                     }}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
+        );
+      }}
+    </Draggable>
+  ))}
+  {provided.placeholder}
+</div>
+)}
+</Droppable>
+</div>
+  );
+})}
+</div>
+              </DragDropContext>
             </div>
-            
-            {/* Opciones de ordenamiento */}
-            <div className="mb-5 p-3 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="font-bold text-base border-b pb-2 mb-3 text-gray-700">Ordenamiento</h3>
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-row items-end gap-3">
-                  <div className="flex flex-col flex-1">
-                    <label htmlFor="sortBy" className="text-sm text-gray-700 mb-1 flex items-center font-medium">
-                      <span className="mr-1">🔍</span> Ordenar por:
-                    </label>
-                    <select
-                      id="sortBy"
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value)}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="createdAt">Fecha de creación</option>
-                      <option value="desc">Descripción</option>
-                      <option value="status">Estado</option>
-                      <option value="user">Usuario</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col flex-1">
-                    <label htmlFor="sortOrder" className="text-sm text-gray-700 mb-1 flex items-center font-medium">
-                      <span className="mr-1">🔊</span> Orden:
-                    </label>
-                    <select
-                      id="sortOrder"
-                      value={sortOrder}
-                      onChange={(e) => setSortOrder(e.target.value)}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="desc">Descendente (Z-A)</option>
-                      <option value="asc">Ascendente (A-Z)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <button 
-              onClick={generateReport}
-              className={`rounded-lg px-4 py-2.5 w-full transition-colors mt-2 font-medium shadow-sm flex items-center justify-center ${loading ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`} 
-              disabled={loading}
-            >
-              {loading ? 
-                <span className="flex items-center">
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Generando...
-                </span> : 
-                <span className="flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Generar informe
-                </span>
-              }
-            </button>
-            {error && <div className="text-red-500 text-sm mt-2 flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              {error}
-            </div>}
           </div>
           
-          <style jsx>{`
-            .toggle-checkbox:checked + .toggle-label {
-              background-color: #e2e2e2;
-            }
-          `}</style>
-        </div>
-        {/* Kanban Columns con Drag & Drop */}
-        <DragDropContext onDragEnd={onDragEnd}>
-
-          <div className="w-full pb-2">
-            <h2 className="text-xl font-bold mb-4 text-gray-800 border-b pb-2">Tablero de tareas</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3" style={{minHeight: "55vh"}}>
-              {/* Renderización robusta de columnas - cada droppable SIEMPRE se renderiza */}
-              {columns.map((col) => {
-                // Estilos diferentes para cada tipo de columna
-                const columnStyles = {
-                  pending: {
-                    header: 'bg-blue-50 border-blue-200',
-                    indicator: 'bg-blue-500',
-                    dragOver: 'bg-blue-50 border-blue-300'
-                  },
-                  inprogress: {
-                    header: 'bg-yellow-50 border-yellow-200',
-                    indicator: 'bg-yellow-500',
-                    dragOver: 'bg-yellow-50 border-yellow-300'
-                  },
-                  completed: {
-                    header: 'bg-green-50 border-green-200',
-                    indicator: 'bg-green-500',
-                    dragOver: 'bg-green-50 border-green-300'
-                  }
-                };
+          {/* Sección de Reportes */}
+          <div className="mt-8 pt-6 border-t border-gray-200">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-medium flex items-center">
+                <svg className="w-5 h-5 mr-2 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Reportes y estadísticas
+              </h2>
+              
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => showReport()}
+                  className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  <svg className="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  Previsualizar
+                </button>
                 
-                const style = columnStyles[col.key];
+                <button
+                  onClick={() => exportToExcel()}
+                  className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  <svg className="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                  </svg>
+                  Excel
+                </button>
                 
-                return (
-                  <Droppable droppableId={col.key} key={col.key}>
-                    {(provided, snapshot) => {
-                      // Extraer las tareas de esta columna - seguro contra errores
-                      // Excluir tareas archivadas del Kanban
-                      const columnTasks = Array.isArray(tasks) 
-                        ? tasks.filter(t => t && t.status === col.key && !t.archived)
-                        : [];
-                        
+                <button
+                  onClick={() => exportToPDF()}
+                  className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                  <svg className="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                  </svg>
+                  PDF
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-100">
+                <h3 className="text-sm font-medium text-blue-800 mb-2">Tareas por estado</h3>
+                <div className="flex items-center space-x-2">
+                  <div className="flex-1">
+                    <div className="h-2 bg-gray-200 rounded-full">
+                      <div 
+                        className="h-2 bg-blue-500 rounded-full" 
+                        style={{ width: `${Math.round(tasks.filter(t => t.status === 'pending').length / Math.max(tasks.length, 1) * 100)}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-xs mt-1 text-gray-500">Pendientes: {tasks.filter(t => t.status === 'pending').length}</div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-2 bg-gray-200 rounded-full">
+                      <div 
+                        className="h-2 bg-yellow-500 rounded-full" 
+                        style={{ width: `${Math.round(tasks.filter(t => t.status === 'inprogress').length / Math.max(tasks.length, 1) * 100)}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-xs mt-1 text-gray-500">En progreso: {tasks.filter(t => t.status === 'inprogress').length}</div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-2 bg-gray-200 rounded-full">
+                      <div 
+                        className="h-2 bg-green-500 rounded-full" 
+                        style={{ width: `${Math.round(tasks.filter(t => t.status === 'completed').length / Math.max(tasks.length, 1) * 100)}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-xs mt-1 text-gray-500">Completadas: {tasks.filter(t => t.status === 'completed').length}</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-purple-50 p-4 rounded-lg shadow-sm border border-purple-100">
+                <h3 className="text-sm font-medium text-purple-800 mb-2">Asignaciones por usuario</h3>
+                {usersList.length > 0 ? (
+                  <div className="space-y-2">
+                    {usersList.map(user => {
+                      const userTasks = tasks.filter(t => t.assignedUserId === user._id);
+                      const percentage = Math.round(userTasks.length / Math.max(tasks.length, 1) * 100);
                       return (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.droppableProps}
-                          className={`bg-white rounded-lg border ${snapshot.isDraggingOver ? style.dragOver : 'border-gray-200'} shadow-sm flex flex-col transition-colors duration-200 h-full`}
-                          style={{minHeight: "50vh"}}
-                        >
-                          {/* Cabecera de la columna */}
-                          <div className={`${style.header} rounded-t-lg border-b p-3 flex items-center justify-between sticky top-0 z-10`}>
-                            <div className="flex items-center">
-                              <div className={`w-3 h-3 rounded-full ${style.indicator} mr-2`}></div>
-                              <div className="font-bold">{col.label}</div>
-                            </div>
-                            <div className="bg-white text-xs font-semibold px-2 py-0.5 rounded-full shadow-sm">
-                              {columnTasks.length}
-                            </div>
+                        <div key={user._id} className="text-xs">
+                          <div className="flex justify-between mb-1">
+                            <span>{user.displayName || user.username}</span>
+                            <span>{userTasks.length} tareas ({percentage}%)</span>
                           </div>
-                          
-                          {/* Cuerpo de la columna con scroll */}
-                          <div className="p-3 flex-1 overflow-y-auto">
-                            {/* Mensaje de carga */}
-                            {loading && (
-                              <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm flex items-center justify-center mb-2">
-                                <svg className="animate-spin h-5 w-5 text-gray-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span className="text-gray-500 text-sm">Cargando...</span>
-                              </div>
-                            )}
-                            
-                            {/* Contenedor de tareas */}
-                            <div className="space-y-3">
-                              {!loading && columnTasks.length === 0 ? (
-                                <div className="bg-gray-50 rounded-lg border border-dashed border-gray-300 p-5 flex flex-col items-center justify-center text-center">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                  </svg>
-                                  <div className="text-gray-500 text-sm">No hay tareas en esta columna.</div>
-                                </div>
-                              ) : (
-                                // Lista de tareas
-                                !loading && columnTasks.map((task, index) => (
-                                  <Draggable
-                                    key={task._id}
-                                    draggableId={task._id}
-                                    index={index}
-                                  >
-                                    {(provided, snapshot) => (
-                                      <div
-                                        ref={provided.innerRef}
-                                        {...provided.draggableProps}
-                                        {...provided.dragHandleProps}
-                                        className={`bg-white rounded-lg border shadow-sm hover:shadow transition-all ${snapshot.isDragging ? 'border-blue-300 shadow-md scale-[1.02] z-50' : 'border-gray-200'}`}
-                                      >
-                                        {/* Parte superior de la tarea con barra de color según columna */}
-                                        <div className={`h-1 rounded-t-lg ${style.indicator}`}></div>
-                                        
-                                        {/* Contenido de la tarea */}
-                                        <div className="p-2">
-                                          <div className="flex justify-between items-start">
-                                            {/* Modo edición para tareas pendientes */}
-                                            {editTaskId === task._id ? (
-                                              <div className="flex flex-col space-y-2">
-                                                <input
-                                                  type="text"
-                                                  className="border p-1 w-full rounded"
-                                                  value={editTaskText}
-                                                  onChange={(e) => setEditTaskText(e.target.value)}
-                                                />
-                                                <div className="w-full">
-                                                  <UserSelector
-                                                    value={editAssignedUserId}
-                                                    onChange={setEditAssignedUserId}
-                                                    placeholder="Asignar a usuario"
-                                                    className="border p-1 w-full rounded text-sm"
-                                                  />
-                                                </div>
-                                                {editLoading ? (
-                                                  <span className="p-1 text-sm">Guardando...</span>
-                                                ) : (
-                                                  <div className="flex space-x-2">
-                                                    <button
-                                                      onClick={saveEditTask}
-                                                      className="bg-green-500 text-white rounded p-1 text-sm"
-                                                    >
-                                                      Guardar
-                                                    </button>
-                                                    <button
-                                                      onClick={() => setEditTaskId(null)}
-                                                      className="bg-gray-500 text-white rounded p-1 text-sm"
-                                                    >
-                                                      Cancelar
-                                                    </button>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            ) : (
-                                              <div className="font-semibold text-gray-800 text-sm">{task.desc}</div>
-                                            )}
-                                            <div className="flex ml-2">
-                                              {/* Botones de edición (solo para tareas pendientes) */}
-                                              {task.status === "pending" && !editTaskId && (
-                                                <button 
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    startEditTask(task._id, task.desc);
-                                                  }}
-                                                  className="text-gray-500 hover:text-blue-600 p-1 rounded-full hover:bg-blue-50 transition-colors"
-                                                  title="Editar tarea"
-                                                >
-                                                  ✎
-                                                </button>
-                                              )}
-                                              
-                                              {/* Botones para guardar/cancelar (cuando está en modo edición) */}
-                                              {editTaskId === task._id && (
-                                                <>
-                                                  <button
-                                                    onClick={saveEditTask}
-                                                    className="text-green-500 hover:text-green-700 p-1 rounded-full hover:bg-green-50 transition-colors"
-                                                    disabled={editLoading}
-                                                    title="Guardar cambios"
-                                                  >
-                                                    ✓
-                                                  </button>
-                                                  <button
-                                                    onClick={() => setEditTaskId(null)}
-                                                    className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-50 transition-colors"
-                                                    title="Cancelar edición"
-                                                  >
-                                                    ✕
-                                                  </button>
-                                                </>
-                                              )}
-                                              
-                                              {/* Botón Archivar (solo para tareas completadas) */}
-                                              {task.status === "completed" && !task.archived && (
-                                                <button 
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    archiveTask(task._id);
-                                                  }}
-                                                  className="text-blue-500 hover:text-blue-700 p-1 rounded-full hover:bg-blue-50 transition-colors"
-                                                  disabled={archiveLoading}
-                                                  title="Archivar tarea"
-                                                >
-                                                  📂
-                                                </button>
-                                              )}
-                                              {/* Botón Eliminar */}
-                                              <button 
-                                                onClick={(e) => {
-                                                  // Detener propagación para evitar problemas con drag & drop
-                                                  e.stopPropagation();
-                                                  deleteTask(task._id);
-                                                }}
-                                                className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-50 transition-colors"
-                                                disabled={deleteLoading}
-                                                title="Eliminar tarea"
-                                              >
-                                                ✕
-                                              </button>
-                                            </div>
-                                          </div>
-                                          
-                                          {/* Usuario asignado */}
-                                          <div className="mt-2 flex items-center justify-between">
-                                            {task.assignedTo ? (
-                                              <div className="flex items-center bg-gray-100 text-gray-700 text-xs py-1 px-2 rounded-full">
-                                                <span className="mr-1">👤</span> {task.assignedTo.displayName || task.assignedTo.username}
-                                              </div>
-                                            ) : (
-                                              <div className="flex items-center bg-gray-100 text-gray-500 text-xs py-1 px-2 rounded-full">
-                                                <span className="mr-1">👤</span> Sin asignar
-                                              </div>
-                                            )}
-                                            
-                                            {/* Fecha de creación */}
-                                            <div className="text-gray-400 text-xs">
-                                              {new Date(task.createdAt).toLocaleDateString()}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </Draggable>
-                                ))
-                              )}
-                            </div>
+                          <div className="h-2 bg-gray-200 rounded-full">
+                            <div 
+                              className="h-2 bg-purple-500 rounded-full" 
+                              style={{ width: `${percentage}%` }}
+                            ></div>
                           </div>
-                          
-                          {/* El placeholder SIEMPRE se renderiza */}
-                          {provided.placeholder}
                         </div>
                       );
-                    }}
-                  </Droppable>
-                )
-              })}
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500">No hay usuarios disponibles</p>
+                )}
+              </div>
+              
+              <div className="bg-green-50 p-4 rounded-lg shadow-sm border border-green-100">
+                <h3 className="text-sm font-medium text-green-800 mb-2">Rendimiento general</h3>
+                <div className="flex justify-between items-center">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">{tasks.length}</div>
+                    <div className="text-xs text-gray-500">Total tareas</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">
+                      {Math.round(tasks.filter(t => t.status === 'completed').length / Math.max(tasks.length, 1) * 100)}%
+                    </div>
+                    <div className="text-xs text-gray-500">Completadas</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">{usersList.length}</div>
+                    <div className="text-xs text-gray-500">Usuarios</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </DragDropContext>
         </div>
       </div>
     </div>
