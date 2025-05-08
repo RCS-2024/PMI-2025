@@ -102,10 +102,13 @@ const Register = ({ onRegister }) => {
           </div>
 
           {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <div className="text-sm text-red-700">{error}</div>
-            </div>
-          )}
+  <div className="rounded-md bg-red-100 border border-red-400 p-4 flex items-center gap-2 animate-shake">
+    <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z" />
+    </svg>
+    <span className="text-base font-semibold text-red-700">{error}</span>
+  </div>
+)}
 
           <div>
             <button

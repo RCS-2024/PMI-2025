@@ -32,7 +32,21 @@ function App() {
   // Estados para edición de descripción de tarea
   const [editTaskId, setEditTaskId] = useState(null);
   const [editTaskText, setEditTaskText] = useState("");
-  
+  // Filtro para incluir archivadas en el reporte
+  const [includeArchived, setIncludeArchived] = useState(false);
+
+  // Función para archivar tarea
+  const archiveTask = async (taskId) => {
+    setLoading(true);
+    try {
+      const updatedTask = await tasksAPI.archiveTask(taskId);
+      setTasks(prevTasks => prevTasks.map(t => t._id === taskId ? updatedTask : t));
+    } catch (err) {
+      setError("Error archivando tarea: " + (err.message || 'Error desconocido'));
+    } finally {
+      setLoading(false);
+    }
+  }
   // Estado para mostrar la previsualización del reporte
   const [showingReport, setShowingReport] = useState(false);
   const [reportData, setReportData] = useState(null);
@@ -99,7 +113,11 @@ function App() {
     const fetchUsers = async () => {
       try {
         const users = await usersAPI.getAllUsers();
-        setUsersList(users);
+        // Filtrar duplicados por username (case-insensitive)
+        const uniqueUsers = users.filter((user, index, self) =>
+          index === self.findIndex(u => u.username.toLowerCase() === user.username.toLowerCase())
+        );
+        setUsersList(uniqueUsers);
       } catch (err) {
         console.error('Error cargando usuarios:', err);
       }
@@ -221,7 +239,7 @@ function App() {
   const showReport = async () => {
     try {
       // Obtener datos actualizados para el reporte
-      const data = await tasksAPI.getTasks();
+      const data = await tasksAPI.getTasks({ includeArchived });
       
       if (data.length === 0) {
         alert('No hay tareas para mostrar en el reporte');
@@ -232,7 +250,8 @@ function App() {
       const reportStructure = {
         completed: data.filter(task => task.status === 'completed'),
         inprogress: data.filter(task => task.status === 'inprogress'),
-        pending: data.filter(task => task.status === 'pending')
+        pending: data.filter(task => task.status === 'pending'),
+        archived: data.filter(task => task.archived)
       };
       
       // Guardar en el estado
@@ -439,6 +458,30 @@ function App() {
                   )}
                 </ul>
               </div>
+              
+              {/* Actividades Archivadas */}
+              <div>
+                <h3 className="text-lg font-semibold flex items-center text-gray-700">
+                  <span className="mr-2">✅</span> Actividades Archivadas
+                </h3>
+                <ul className="ml-8 mt-2 space-y-1">
+                  {reportData.archived.length > 0 ? (
+                    reportData.archived.map(task => (
+                      <li key={task._id} className="flex items-start">
+                        <span className="mr-1 text-gray-600">✔</span>
+                        <span>
+                          {task.assignedTo ? (
+                            <span className="font-medium">{task.assignedTo.displayName || task.assignedTo.username}- </span>
+                          ) : null}
+                          {task.desc}
+                        </span>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-gray-500 italic">No hay actividades archivadas</li>
+                  )}
+                </ul>
+              </div>
             </div>
             
             <div className="mt-6 flex justify-end space-x-2">
@@ -623,6 +666,15 @@ function App() {
                 >
                   ✎
                 </button>
+                {column.key === 'completed' && !task.archived && (
+  <button 
+    onClick={() => archiveTask(task._id)}
+    className="text-gray-400 hover:text-red-600 text-xs"
+    title="Archivar tarea"
+  >
+    🗑️
+  </button>
+)}
                 <button 
                   onClick={() => deleteTask(task._id)}
                   className="text-gray-400 hover:text-red-600 text-xs"

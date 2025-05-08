@@ -38,11 +38,22 @@ app.post("/api/register", async (req, res) => {
 
     username = username.trim().toLowerCase(); // Insensible a mayúsculas/minúsculas
 
-    // Verificar si el usuario ya existe (case-insensitive)
-    const existingUser = await User.findOne({ username });
+    // Verificar si el usuario ya existe (case-insensitive, usando collation)
+    const existingUser = await User.findOne({ username }).collation({ locale: 'en', strength: 2 });
     if (existingUser) {
       console.warn(`[Registro] Usuario ya existe: ${username}`);
       return res.status(400).json({ error: "El nombre de usuario ya existe" });
+    }
+
+    // Eliminar duplicados existentes (deja solo el primero creado)
+    if (username === 'user') {
+      const duplicates = await User.find({ username: { $regex: '^user$', $options: 'i' } }).collation({ locale: 'en', strength: 2 });
+      if (duplicates.length > 1) {
+        const sorted = duplicates.sort((a, b) => a.createdAt - b.createdAt);
+        const toDelete = sorted.slice(1).map(u => u._id);
+        await User.deleteMany({ _id: { $in: toDelete } });
+        console.warn(`[Registro] Duplicados eliminados para username: user`);
+      }
     }
 
     // Crear nuevo usuario
