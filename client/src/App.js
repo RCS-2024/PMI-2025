@@ -372,6 +372,57 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100">
+      {/* Modal de edición de tarea */}
+      {editTaskId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Editar tarea</h3>
+              <button 
+                onClick={() => {
+                  setEditTaskId(null);
+                  setEditTaskText("");
+                }}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Descripción
+              </label>
+              <textarea
+                value={editTaskText}
+                onChange={(e) => setEditTaskText(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                rows="4"
+              ></textarea>
+            </div>
+            
+            <div className="mt-5 flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setEditTaskId(null);
+                  setEditTaskText("");
+                }}
+                className="px-4 py-2 border rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveEditTask}
+                disabled={loading || editTaskText.trim() === ''}
+                className={`px-4 py-2 rounded-md text-white ${loading || editTaskText.trim() === '' ? 'bg-indigo-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+              >
+                {loading ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Modal de previsualización del reporte */}
       {showingReport && reportData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

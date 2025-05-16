@@ -10,7 +10,7 @@ import User from "./models/User.js";
 import Task from "./models/Task.js";
 
 // Importar middleware de autenticación
-import { authenticateToken, generateToken, isAdmin } from "./middleware/auth.js";
+import { authenticateToken, generateToken, isAdmin, verifyToken } from "./middleware/auth.js";
 
 const app = express();
 app.use(cors());
@@ -181,6 +181,49 @@ app.get("/api/me", authenticateToken, async (req, res) => {
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint para renovar token
+app.post("/api/refresh-token", async (req, res) => {
+  try {
+    // Obtener el token del header
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({ error: 'Token no proporcionado' });
+    }
+    
+    // Verificar el token actual
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ error: 'Token inválido o expirado' });
+    }
+    
+    // Verificar que el usuario exista
+    const user = await User.findById(decoded.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+    
+    // Generar un nuevo token
+    const newToken = generateToken(user._id, user.role);
+    
+    // Responder con el nuevo token
+    res.json({ 
+      message: "Token renovado exitosamente",
+      token: newToken,
+      user: {
+        _id: user._id,
+        username: user.username,
+        displayName: user.displayName,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Error al renovar token:', error);
+    res.status(500).json({ error: "Error al renovar token: " + error.message });
   }
 });
 

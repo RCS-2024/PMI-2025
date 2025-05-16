@@ -24,9 +24,57 @@ const getAuthHeader = () => {
   return header;
 };
 
+// Función para verificar si el token está próximo a expirar (menos de 30 minutos)
+const isTokenExpiringSoon = () => {
+  const token = localStorage.getItem('token');
+  if (!token) return false;
+  
+  try {
+    // Decodificar el token sin verificar la firma
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    // Calcular tiempo restante en segundos
+    const timeRemaining = payload.exp - (Date.now() / 1000);
+    // Devolver true si quedan menos de 30 minutos
+    return timeRemaining < 1800;
+  } catch (e) {
+    console.error('Error al verificar expiración del token:', e);
+    return false;
+  }
+};
+
+// Función para intentar renovar el token
+const refreshToken = async () => {
+  try {
+    console.log('Intentando renovar token...');
+    // Usar el token actual para solicitar uno nuevo
+    const response = await fetch(`${API_URL}/refresh-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+    
+    if (!response.ok) throw new Error('No se pudo renovar el token');
+    
+    const data = await response.json();
+    localStorage.setItem('token', data.token);
+    console.log('Token renovado con éxito');
+    return true;
+  } catch (e) {
+    console.error('Error al renovar token:', e);
+    return false;
+  }
+};
+
 // Función para hacer peticiones fetch con autenticación
 const fetchWithAuth = async (endpoint, options = {}) => {
-  // Obtener headers de autenticación
+  // Verificar si el token está por expirar y renovarlo si es necesario
+  if (isTokenExpiringSoon()) {
+    await refreshToken();
+  }
+  
+  // Obtener headers de autenticación (posiblemente con el token renovado)
   const authHeaders = getAuthHeader();
   
   const headers = {
@@ -37,26 +85,44 @@ const fetchWithAuth = async (endpoint, options = {}) => {
   
   console.log(`Realizando petición a ${endpoint} con headers:`, headers);
 
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers
-  });
+  try {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers
+    });
 
-  // Si es un error de autenticación (401), limpiar localStorage
-  if (response.status === 401) {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    window.location.href = '/login';
-    throw new Error('Sesión expirada. Por favor, inicia sesión de nuevo.');
+    // Manejar diferentes tipos de errores de autenticación
+    if (response.status === 401 || response.status === 403) {
+      // Intentar renovar el token una vez
+      const renewed = await refreshToken();
+      
+      if (renewed) {
+        // Reintentar la petición con el nuevo token
+        return fetchWithAuth(endpoint, options);
+      } else {
+        // Si no se pudo renovar, cerrar sesión
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login?expired=true';
+        throw new Error('Sesión expirada. Por favor, inicia sesión de nuevo.');
+      }
+    }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Ha ocurrido un error');
+    }
+
+    return data;
+  } catch (error) {
+    // Si es un error de red o el servidor no responde
+    if (error.message === 'Failed to fetch') {
+      console.error('Error de conexión al servidor');
+      throw new Error('No se pudo conectar al servidor. Verifica tu conexión a internet.');
+    }
+    throw error;
   }
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || 'Ha ocurrido un error');
-  }
-
-  return data;
 };
 
 // Rutas de autenticación

@@ -5,7 +5,16 @@ const JWT_SECRET = 'pmi2025-secret-key';
 
 export const generateToken = (userId, userRole = 'user') => {
   console.log(`Generando token para usuario ${userId} con rol ${userRole}`);
-  return jwt.sign({ id: userId, role: userRole }, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ id: userId, role: userRole }, JWT_SECRET, { expiresIn: '30d' });
+};
+
+// Función para verificar un token sin lanzar excepciones
+export const verifyToken = (token) => {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return null;
+  }
 };
 
 // Middleware para proteger rutas
