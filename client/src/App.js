@@ -558,18 +558,36 @@ function App() {
           </div>
         </div>
       )}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-gray-900">MPI - Gestor de Tareas</h1>
-          <div className="flex items-center">
-            <span className="mr-3 text-sm text-gray-600">
-              Conectado como: <span className="font-medium">{currentUser?.displayName || currentUser?.username}</span>
-            </span>
-            <button 
-              onClick={logout}
-              className="bg-red-600 hover:bg-red-700 text-white text-sm py-1 px-3 rounded transition-colors">
-              Cerrar sesión
-            </button>
+      <header className="bg-white shadow-md border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              <svg className="h-8 w-8 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              <h1 className="ml-2 text-xl font-bold text-gray-900">MPI - Gestor de Tareas</h1>
+            </div>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center bg-gray-100 px-3 py-1.5 rounded-full">
+                <svg className="h-5 w-5 text-gray-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                <span className="text-sm font-medium text-gray-700">
+                  {currentUser?.displayName || currentUser?.username}
+                </span>
+                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                  {currentUser?.role === 'admin' ? 'Admin' : 'Usuario'}
+                </span>
+              </div>
+              <button 
+                onClick={logout}
+                className="inline-flex items-center bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 font-medium rounded-md text-sm px-3 py-1.5 transition-colors">
+                <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Cerrar sesión
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -704,50 +722,77 @@ function App() {
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...provided.dragHandleProps}
-            className={`rounded-2xl shadow-md hover:shadow-xl transition-shadow duration-200 my-2 p-4 border ${cardBorder} ${cardBg} ${cardText} flex flex-col gap-2`}
+            className={`rounded-lg shadow-md hover:shadow-lg transition-all duration-200 my-3 border ${cardBorder} ${cardBg} overflow-hidden`}
           >
-            <div className="flex items-start gap-2">
-              <span className="text-xl">{cardIcon}</span>
-              <span className="flex-1 font-medium break-words">{task.desc}</span>
-              <div className="flex space-x-1">
-                <button 
-                  onClick={() => startEditTask(task._id, task.desc)}
-                  className="text-gray-400 hover:text-blue-600 text-xs"
-                  title="Editar descripción"
-                >
-                  ✎
-                </button>
-                {column.key === 'completed' && !task.archived && (
-  <button 
-    onClick={() => archiveTask(task._id)}
-    className="text-gray-400 hover:text-red-600 text-xs"
-    title="Archivar tarea"
-  >
-    🗑️
-  </button>
-)}
-                <button 
-                  onClick={() => deleteTask(task._id)}
-                  className="text-gray-400 hover:text-red-600 text-xs"
-                  title="Eliminar tarea"
-                >
-                  ✕
-                </button>
+            {/* Cabecera de la tarjeta con prioridad visual */}
+            <div className={`px-4 py-2 border-b ${column.key === 'pending' ? 'bg-yellow-50 border-yellow-100' : column.key === 'inprogress' ? 'bg-blue-50 border-blue-100' : 'bg-green-50 border-green-100'} flex justify-between items-center`}>
+              <div className="flex items-center">
+                <span className={`w-6 h-6 flex items-center justify-center rounded-full mr-2 ${column.key === 'pending' ? 'bg-yellow-100 text-yellow-700' : column.key === 'inprogress' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                  {cardIcon}
+                </span>
+                <span className={`text-sm font-semibold ${column.key === 'pending' ? 'text-yellow-800' : column.key === 'inprogress' ? 'text-blue-800' : 'text-green-800'}`}>
+                  {column.key === 'pending' ? 'Pendiente' : column.key === 'inprogress' ? 'En progreso' : 'Completada'}
+                </span>
               </div>
-            </div>
-            <div className="flex items-center justify-between mt-1">
-              <AssigneeEditor 
-                task={task} 
-                onUpdate={(updatedTask) => {
-                  // Actualizar la tarea en el estado local
-                  setTasks(tasks.map(t => 
-                    t._id === updatedTask._id ? updatedTask : t
-                  ));
-                }} 
-              />
-              <div className="text-gray-400 text-xs">
+              <div className="text-xs text-gray-500 flex items-center">
+                <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
                 {new Date(task.createdAt).toLocaleDateString()}
               </div>
+            </div>
+            
+            {/* Contenido principal */}
+            <div className="p-4 bg-white">
+              <p className="text-gray-800 font-medium mb-3 line-clamp-2">{task.desc}</p>
+              
+              {/* Responsable */}
+              <div className="flex items-center mb-3">
+                <div className="flex-shrink-0 h-8 w-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 mr-2">
+                  {task.assignedTo && task.assignedTo.displayName ? task.assignedTo.displayName.charAt(0).toUpperCase() : 
+                   task.assignedTo && task.assignedTo.username ? task.assignedTo.username.charAt(0).toUpperCase() : '?'}
+                </div>
+                <div className="text-sm">
+                  <p className="text-gray-900 font-medium">
+                    {task.assignedTo && (task.assignedTo.displayName || task.assignedTo.username) ? 
+                      (task.assignedTo.displayName || task.assignedTo.username) : 'Sin asignar'}
+                  </p>
+                  <AssigneeEditor 
+                    task={task} 
+                    onUpdate={(updatedTask) => {
+                      setTasks(tasks.map(t => 
+                        t._id === updatedTask._id ? updatedTask : t
+                      ));
+                    }} 
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Acciones de la tarea */}
+            <div className="mt-3 flex justify-center gap-2">
+              <button 
+                onClick={() => startEditTask(task._id, task.desc)}
+                className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-sm font-medium rounded border border-blue-200"
+              >
+                Editar
+              </button>
+              
+              {column.key === 'completed' && !task.archived && (
+                <button 
+                  onClick={() => archiveTask(task._id)}
+                  className="px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 text-sm font-medium rounded border border-green-200"
+                >
+                  Archivar
+                </button>
+              )}
+              
+              <button 
+                onClick={() => deleteTask(task._id)}
+                className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-sm font-medium rounded border border-red-200"
+              >
+                Eliminar
+              </button>
             </div>
           </div>
         );
